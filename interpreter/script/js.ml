@@ -207,7 +207,10 @@ module NameMap = Map.Make(struct type t = Ast.name let compare = compare end)
 module Map = Map.Make(String)
 
 type exports = extern_type NameMap.t
+
 type modules = {mutable env : exports Map.t; mutable current : int}
+type threads = {mutable env : string  Map.t; mutable current : int}
+type context = {thrs : threads; mods : modules}
 
 let exports m : exports =
   List.fold_left
@@ -215,24 +218,41 @@ let exports m : exports =
     NameMap.empty m.it.exports
 
 let modules () : modules = {env = Map.empty; current = 0}
+let threads () : threads = {env = Map.empty; current = 0}
+let context () : context = {thrs = threads (); mods = modules ()}
 
-let current_var (mods : modules) = "$" ^ string_of_int mods.current
-let of_var_opt (mods : modules) = function
-  | None -> current_var mods
+let module_prefix = "_M"
+let thread_prefix = "_T"
+
+let current_mod_var (mods: modules) =
+  let prefix = module_prefix in
+  "$" ^ prefix ^ string_of_int mods.current
+
+let of_mod_var_opt (mods: modules) = function
+  | None -> current_mod_var mods
   | Some x -> x.it
 
-let bind (mods : modules) x_opt m =
+let current_thr_var (thrs: threads) =
+  let prefix = thread_prefix in
+  "$" ^ prefix ^ string_of_int thrs.current
+
+let of_thr_var_opt (thr: threads) = function
+  | None -> current_thr_var thr
+  | Some x -> x.it
+
+
+let bind (mods: modules) x_opt m =
   let exports = exports m in
   mods.current <- mods.current + 1;
-  mods.env <- Map.add (of_var_opt mods x_opt) exports mods.env;
-  if x_opt <> None then mods.env <- Map.add (current_var mods) exports mods.env
+  mods.env <- Map.add (of_mod_var_opt mods x_opt) exports mods.env;
+  if x_opt <> None then mods.env <- Map.add (current_mod_var mods) exports mods.env
 
-let lookup (mods : modules) x_opt name at =
+let lookup (mods: modules) x_opt name at =
   let exports =
-    try Map.find (of_var_opt mods x_opt) mods.env with Not_found ->
+    try Map.find (of_mod_var_opt mods x_opt) mods.env with Not_found ->
       raise (Eval.Crash (at, 
         if x_opt = None then "no module defined within script"
-        else "unknown module " ^ of_var_opt mods x_opt ^ " within script"))
+        else "unknown module " ^ of_mod_var_opt mods x_opt ^ " within script"))
   in try NameMap.find name exports with Not_found ->
     raise (Eval.Crash (at, "unknown export \"" ^
       string_of_name name ^ "\" within module"))
@@ -556,7 +576,7 @@ let rec of_definition def =
       of_bytes "<malformed quote>"
 
 let of_wrapper mods x_opt name wrap_action wrap_assertion at =
-  let x = of_var_opt mods x_opt in
+  let x = of_mod_var_opt mods x_opt in
   let bs = wrap name wrap_action wrap_assertion at in
   "call(instance(" ^ of_bytes bs ^ ", " ^
     "exports(" ^ x ^ ")), " ^ " \"run\", [])"
@@ -564,7 +584,7 @@ let of_wrapper mods x_opt name wrap_action wrap_assertion at =
 let of_action mods act =
   match act.it with
   | Invoke (x_opt, name, vs) ->
-    "call(" ^ of_var_opt mods x_opt ^ ", " ^ of_name name ^ ", " ^
+    "call(" ^ of_mod_var_opt mods x_opt ^ ", " ^ of_name name ^ ", " ^
       "[" ^ String.concat ", " (List.map of_value vs) ^ "])",
     (match lookup mods x_opt name act.at with
     | ExternFuncType ft when not (is_js_func_type ft) ->
@@ -573,7 +593,7 @@ let of_action mods act =
     | _ -> None
     )
   | Get (x_opt, name) ->
-    "get(" ^ of_var_opt mods x_opt ^ ", " ^ of_name name ^ ")",
+    "get(" ^ of_mod_var_opt mods x_opt ^ ", " ^ of_name name ^ ")",
     (match lookup mods x_opt name act.at with
     | ExternGlobalType gt when not (is_js_global_type gt) ->
       let GlobalType (t, _) = gt in
@@ -612,7 +632,7 @@ let of_assertion mods ass =
   | AssertExhaustion (act, _) ->
     of_assertion' mods act "assert_exhaustion" [] None
 
-let of_command mods cmd =
+let rec of_command (ctx : context) cmd =
   "\n// " ^ Filename.basename cmd.at.left.file ^
     ":" ^ string_of_int cmd.at.left.line ^ "\n" ^
   match cmd.it with
@@ -622,20 +642,28 @@ let of_command mods cmd =
       | Textual m -> m
       | Encoded (_, bs) -> Decode.decode "binary" bs
       | Quoted (_, s) -> unquote (Parse.string_to_module s)
-    in bind mods x_opt (unquote def);
-    "let " ^ current_var mods ^ " = instance(" ^ of_definition def ^ ");\n" ^
+    in bind ctx.mods x_opt (unquote def);
+    "let " ^ current_mod_var ctx.mods ^ " = instance(" ^ of_definition def ^ ");\n" ^
     (if x_opt = None then "" else
-    "let " ^ of_var_opt mods x_opt ^ " = " ^ current_var mods ^ ";\n")
+    "let " ^ of_mod_var_opt ctx.mods x_opt ^ " = " ^ current_mod_var ctx.mods ^ ";\n")
   | Register (name, x_opt) ->
-    "register(" ^ of_name name ^ ", " ^ of_var_opt mods x_opt ^ ")\n"
+    "register(" ^ of_name name ^ ", " ^ of_mod_var_opt ctx.mods x_opt ^ ")\n"
   | Action act ->
-    of_assertion' mods act "run" [] None ^ "\n"
+    of_assertion' ctx.mods act "run" [] None ^ "\n"
   | Assertion ass ->
-    of_assertion mods ass ^ "\n"
-  | Thread _ -> "" (* TODO: failwith "JS translation of Thread is NYI" *)
-  | Wait _ -> "" (* TODO: failwith "JS translation of Wait is NYI" *)
+    of_assertion ctx.mods ass ^ "\n"
+  | Thread (x_opt, xs, cmds) ->
+    "let " ^ current_thr_var ctx.thrs ^
+    " = thread([" ^
+    String.concat ", " (List.map (fun x -> "\"" ^ x.it ^ "\"") xs) ^
+    "], function () {" ^
+    String.concat "" (List.map (of_command ctx) cmds) ^
+    "});\n"
+  | Wait x_opt ->
+    "wait(" ^ of_thr_var_opt ctx.thrs x_opt ^ ");\n"
   | Meta _ -> assert false
 
-let of_script scr =
+let of_script base_file scr =
+  let ctx = context () in
   (if !Flags.harness then harness else "") ^
-  String.concat "" (List.map (of_command (modules ())) scr)
+  String.concat "" (List.map (of_command ctx) scr)

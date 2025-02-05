@@ -69,7 +69,7 @@ let create_script_file mode file get_script _ =
 
 let create_js_file file get_script _ =
   trace ("Converting (" ^ file ^ ")...");
-  let js = Js.of_script (get_script ()) in
+  let (js, js_workers) = Js.of_script file (get_script ()) in
   let oc = open_out file in
   try
     trace "Writing...";
