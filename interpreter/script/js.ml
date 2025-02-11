@@ -247,6 +247,12 @@ let bind (mods: modules) x_opt m =
   mods.env <- Map.add (of_mod_var_opt mods x_opt) exports mods.env;
   if x_opt <> None then mods.env <- Map.add (current_mod_var mods) exports mods.env
 
+let bind_thread (thrs: threads) x_opt m =
+  let exports = exports m in
+  thrs.current <- thrs.current + 1;
+  thrs.env <- Map.add (of_thr_var_opt thrs x_opt) exports thrs.env;
+  if x_opt <> None then thrs.env <- Map.add (current_thr_var thrs) exports thrs.env
+
 let lookup (mods: modules) x_opt name at =
   let exports =
     try Map.find (of_mod_var_opt mods x_opt) mods.env with Not_found ->
@@ -653,11 +659,14 @@ let rec of_command (ctx : context) cmd =
   | Assertion ass ->
     of_assertion ctx.mods ass ^ "\n"
   | Thread (x_opt, xs, cmds) ->
+    if x_opt = None then failwith "NYI: JS printing can't handle anonymous thread commands";
+    let worker_contents = String.concat "" (List.map (of_command ctx) cmds) in
+    bind ctx.thrs x_opt worker_contents;
+    let fname = Filename.remove_extension(stem) ^ of_var_opt ctx.threads x_opt ^ Filename.extension(stem) in
     "let " ^ current_thr_var ctx.thrs ^
     " = thread([" ^
-    String.concat ", " (List.map (fun x -> "\"" ^ x.it ^ "\"") xs) ^
-    "], function () {" ^
-    String.concat "" (List.map (of_command ctx) cmds) ^
+    String.concat ", " (List.map (fun x -> "\"" ^ x.it ^ "\", " ^ x.it) xs) ^
+    "], \"" ^
     "});\n"
   | Wait x_opt ->
     "wait(" ^ of_thr_var_opt ctx.thrs x_opt ^ ");\n"

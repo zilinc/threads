@@ -74,6 +74,11 @@ function eq_funcref(x, y) {
 // Default imports.
 var registry = {};
 
+// List of workers. Each element is of the form
+// {worker: Worker, executed: bool, result: bool}
+// true result means success and false means failure.
+var worker_arr = [];
+
 // All tests run asynchronously and return their results as promises. To ensure
 // that all tests execute in the correct order, we chain the promises together
 // so that a test is only executed when all previous tests have finished their
@@ -432,68 +437,61 @@ function thread(parent_scope, filename) {
     return Promise.all(
       // parent_scope is a list with each element [name, Promise(instance)]
       // For each element, create a promise cloning only the shared memories of the instance:
-      parent_scope.map(element => {
-        return element[1].then( instance => {
-          let x = {exports: {}};
+      parent_scope.map(elt => {
+        let [name, prom] = elt
+        return prom.then(instance => {
+          let exports = []
           Object.keys(instance.exports).forEach(k => {
-            if (instance.exports[k].buffer instanceof SharedArrayBuffer) { x.exports[k] = instance.exports[k]};
+            if (instance.exports[k].buffer instanceof SharedArrayBuffer) {
+              exports[k] = instance.exports[k]
+            };
           });
-          return [element[0], x];
+          return [name, exports];
         });
       })
-    ).then( scope => {
-          const worker = new Worker("./js/harness/async_worker.js");
-          let worker_ind = worker_arr.length;
-          worker_arr.push([worker,false]);
-          worker.onmessage = (e => {
-            if(e.data.type === "done") { worker_arr[worker_ind] = [worker,true,true]; }
-            if(e.data.type === "fail") { worker_arr[worker_ind] = [worker,true,false]; uniqueTest(_ => { assert_true(false, e.data.loc); }, (filename + ": " + e.data.name)); }
-          });
-          worker.postMessage({scope: scope, filename: "../../../"+filename});
-          return worker_ind;
-/*
-        return new Promise( accept => {
-          // we now have a version of parent_scope with only the shared parts
-          const worker = new Worker("./js/harness/async_worker.js");
-          let worker_ind = worker_arr.length;
-          worker_arr.push([worker,false]);
-          
-          worker.onmessage = (e => {
-            if(e.data.type === "done") { accept(); }
-            if(e.data.type === "fail") { uniqueTest(_ => { assert_true(false, e.data.loc); }, (filename + ": " + e.data.name)); accept(); }
-          });
-          worker.postMessage({scope: scope, filename: "../../../"+filename});
-        }) */
-      }, _ => { console.log("unreachable"); });
-  }, _ => { console.log("unreachable"); } );
+    )}).then(scope => {
+      // scope is a list of [name, exports]
+      const worker = new Worker("./js/harness/async_worker.js");
+      let worker_index = worker_arr.length;
+      worker_arr.push({worker: worker, executed: false, result: null});
+      worker.onmessage = (event => {
+        switch (event.data.type) {
+        case "done":
+          worker_arr[worker_index] = {worker: worker, executed: true, result: true};
+          break;
+        case "failed":
+          worker_arr[worker_index] = {worker: worker, executed: true, result: false};
+          uniqueTest(_ => { assert_true(false, event.data.loc); },
+                     filename + ": " + event.data.name);
+        }
+      });
+      worker.postMessage({scope: scope, filename: filename});
+      return worker_index;
+  })
   return chain;
 }
 
-function wait(worker_ind_p) {
+function wait(widx_prom) {
   const test = "Test that the result of a thread execution can be waited on";
   const loc = new Error().stack.toString().replace("Error", "");
-  chain = Promise.all([worker_ind_p, chain]).then(
+  chain = Promise.all([widx_prom, chain]).then(
     values => {
-      let worker_ind = values[0];
-      return new Promise(accept => {
-        if ((worker_arr[worker_ind])[1] === true) {
-          if ((worker_arr[worker_ind])[2] === true) {
-            accept();
-          } else {
-            uniqueTest(_ => { assert_true(false, loc); }, test);
-            accept();
-          }
+      let worker_index = values[0];
+      return new Promise((resolve, reject) => {
+        let worker = worker_arr[worker_ind].worker;
+        if (worker_arr[worker_index].executed === true) {
+            resolve();
         } else {
-          let old_handler = worker_arr[worker_ind][0].onmessage;
-          worker_arr[worker_ind][0].onmessage = (e => {
-            if(e.data.type === "done") { worker_arr[worker_ind] = [worker_arr[worker_ind][0],true,true]; accept(); }
-            if(e.data.type === "fail") { old_handler(e); accept(); }
+          // we need to wait for the message to execute and report back
+          let worker_onmessage = worker.onmessage;  // the old message handler for that worker
+          worker.onmessage = (event => {
+            // if the worker sends anything back, we mark it as resolved
+            worker_onmessage(event);
+            resolve();
           });
         }
-      }, _ => { uniqueTest(_ => { assert_true(false, loc); }, test);
+        worker.onerror = (err) => { uniqueTest(_ => { assert_true(false, loc); }, test); reject(); }
       });
-    },
-    _ => { console.log("unreachable"); }
-  );
+    });
   return chain;
 }
