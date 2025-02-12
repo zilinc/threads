@@ -247,11 +247,10 @@ let bind (mods: modules) x_opt m =
   mods.env <- Map.add (of_mod_var_opt mods x_opt) exports mods.env;
   if x_opt <> None then mods.env <- Map.add (current_mod_var mods) exports mods.env
 
-let bind_thread (thrs: threads) x_opt m =
-  let exports = exports m in
+let bind_thr (thrs: threads) x_opt (scr: string) =
   thrs.current <- thrs.current + 1;
-  thrs.env <- Map.add (of_thr_var_opt thrs x_opt) exports thrs.env;
-  if x_opt <> None then thrs.env <- Map.add (current_thr_var thrs) exports thrs.env
+  thrs.env <- Map.add (of_thr_var_opt thrs x_opt) scr thrs.env;
+  if x_opt <> None then thrs.env <- Map.add (current_thr_var thrs) scr thrs.env
 
 let lookup (mods: modules) x_opt name at =
   let exports =
@@ -638,7 +637,7 @@ let of_assertion mods ass =
   | AssertExhaustion (act, _) ->
     of_assertion' mods act "assert_exhaustion" [] None
 
-let rec of_command (ctx : context) cmd =
+let rec of_command base_file (ctx : context) cmd =
   "\n// " ^ Filename.basename cmd.at.left.file ^
     ":" ^ string_of_int cmd.at.left.line ^ "\n" ^
   match cmd.it with
@@ -660,19 +659,24 @@ let rec of_command (ctx : context) cmd =
     of_assertion ctx.mods ass ^ "\n"
   | Thread (x_opt, xs, cmds) ->
     if x_opt = None then failwith "NYI: JS printing can't handle anonymous thread commands";
-    let worker_contents = String.concat "" (List.map (of_command ctx) cmds) in
-    bind ctx.thrs x_opt worker_contents;
-    let fname = Filename.remove_extension(stem) ^ of_var_opt ctx.threads x_opt ^ Filename.extension(stem) in
+    let base_file' = Filename.remove_extension(base_file)
+                     ^ of_thr_var_opt ctx.thrs x_opt
+                     ^ Filename.extension(base_file) in
+    let worker_contents = String.concat "" (List.map (of_command base_file' ctx) cmds) in
+    bind_thr ctx.thrs x_opt worker_contents;
     "let " ^ current_thr_var ctx.thrs ^
     " = thread([" ^
     String.concat ", " (List.map (fun x -> "\"" ^ x.it ^ "\", " ^ x.it) xs) ^
-    "], \"" ^
-    "});\n"
+    "], \"" ^ base_file' ^
+    "\"});\n"
   | Wait x_opt ->
     "wait(" ^ of_thr_var_opt ctx.thrs x_opt ^ ");\n"
   | Meta _ -> assert false
 
+
 let of_script base_file scr =
   let ctx = context () in
-  (if !Flags.harness then harness else "") ^
-  String.concat "" (List.map (of_command ctx) scr)
+  let js = (if !Flags.harness then harness else "") ^
+  String.concat "" (List.map (of_command base_file ctx) scr) in
+  let js_workers = ctx.thrs.env in
+  (js, js_workers)

@@ -453,14 +453,13 @@ function thread(parent_scope, filename) {
       // scope is a list of [name, exports]
       const worker = new Worker("./js/harness/async_worker.js");
       let worker_index = worker_arr.length;
-      worker_arr.push({worker: worker, executed: false, result: null});
+      worker_arr.push({worker: worker, executed: false});
       worker.onmessage = (event => {
+        worker_arr[worker_index] = {worker: worker, executed: true};
         switch (event.data.type) {
         case "done":
-          worker_arr[worker_index] = {worker: worker, executed: true, result: true};
           break;
         case "failed":
-          worker_arr[worker_index] = {worker: worker, executed: true, result: false};
           uniqueTest(_ => { assert_true(false, event.data.loc); },
                      filename + ": " + event.data.name);
         }
