@@ -1,5 +1,3 @@
-importScripts("testharness.js", "testharnessreport.js");
-
 onmessage = (event) => {
   // event.data : {scope: [[name, prom]], filename: string}
   event.data.scope.forEach(element => {
@@ -9,14 +7,14 @@ onmessage = (event) => {
   });
 
   let fname = event.data.filename;
-  importScripts(fname);
+  importScripts("testharness.js", "async_index.js", "../../../../" + fname);
   chain.then(
     _ => {
-      console.log(`Worker ${fname} done.`);
+      console.log(`Worker ${fname} posted done`);
       postMessage({type: "done"});
     },
     reason => {
-      console.log(`Worker ${fname} failed due to` + reason)
+      console.log(`Worker ${fname} failed due to ` + reason)
       postMessage({type: "failed"})
     });
 };

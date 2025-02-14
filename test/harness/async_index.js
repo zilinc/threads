@@ -440,6 +440,7 @@ function thread(parent_scope, filename) {
       parent_scope.map(elt => {
         let [name, prom] = elt
         return prom.then(instance => {
+          console.log("[I] instance" + instance)
           let exports = []
           Object.keys(instance.exports).forEach(k => {
             if (instance.exports[k].buffer instanceof SharedArrayBuffer) {
@@ -477,11 +478,13 @@ function wait(widx_prom) {
     values => {
       let worker_index = values[0];
       return new Promise((resolve, reject) => {
-        let worker = worker_arr[worker_ind].worker;
+        let worker = worker_arr[worker_index].worker;
         if (worker_arr[worker_index].executed === true) {
-            resolve();
+          console.log(`Worker ${worker_index} already finished.`)
+          resolve();
         } else {
           // we need to wait for the message to execute and report back
+          console.log(`Wait for worker ${worker_index} to finish.`)
           let worker_onmessage = worker.onmessage;  // the old message handler for that worker
           worker.onmessage = (event => {
             // if the worker sends anything back, we mark it as resolved
@@ -489,7 +492,11 @@ function wait(widx_prom) {
             resolve();
           });
         }
-        worker.onerror = (err) => { uniqueTest(_ => { assert_true(false, loc); }, test); reject(); }
+        worker.onerror = (err) => {
+          uniqueTest(_ => { assert_true(false, loc); }, test);
+          console.log(`Worker ${worker_index} errored out due to `, err)
+          reject();
+        }
       });
     });
   return chain;

@@ -209,7 +209,7 @@ module Map = Map.Make(String)
 type exports = extern_type NameMap.t
 
 type modules = {mutable env : exports Map.t; mutable current : int}
-type threads = {mutable env : string  Map.t; mutable current : int}
+type threads = {mutable env : (string * string) Map.t; mutable current : int}
 type context = {thrs : threads; mods : modules}
 
 let exports m : exports =
@@ -247,10 +247,14 @@ let bind (mods: modules) x_opt m =
   mods.env <- Map.add (of_mod_var_opt mods x_opt) exports mods.env;
   if x_opt <> None then mods.env <- Map.add (current_mod_var mods) exports mods.env
 
-let bind_thr (thrs: threads) x_opt (scr: string) =
+let bind_thr (thrs: threads) x_opt basefile (scr: string) =
   thrs.current <- thrs.current + 1;
-  thrs.env <- Map.add (of_thr_var_opt thrs x_opt) scr thrs.env;
-  if x_opt <> None then thrs.env <- Map.add (current_thr_var thrs) scr thrs.env
+  let v = current_thr_var thrs in
+  let v' = of_thr_var_opt thrs x_opt in
+  let fname = Filename.remove_extension basefile ^ v ^ Filename.extension basefile in
+  let fname' = Filename.remove_extension basefile ^ v' ^ Filename.extension basefile in
+  thrs.env <- Map.add v' (fname', scr) thrs.env;
+  if x_opt <> None then thrs.env <- Map.add v (fname, scr) thrs.env
 
 let lookup (mods: modules) x_opt name at =
   let exports =
@@ -663,12 +667,14 @@ let rec of_command base_file (ctx : context) cmd =
                      ^ of_thr_var_opt ctx.thrs x_opt
                      ^ Filename.extension(base_file) in
     let worker_contents = String.concat "" (List.map (of_command base_file' ctx) cmds) in
-    bind_thr ctx.thrs x_opt worker_contents;
+    bind_thr ctx.thrs x_opt base_file worker_contents;
     "let " ^ current_thr_var ctx.thrs ^
     " = thread([" ^
-    String.concat ", " (List.map (fun x -> "\"" ^ x.it ^ "\", " ^ x.it) xs) ^
+    String.concat ", " (List.map (fun x -> "[\"" ^ x.it ^ "\", " ^ x.it ^ "]") xs) ^
     "], \"" ^ base_file' ^
-    "\"});\n"
+    "\");\n" ^
+    if x_opt = None then "" else
+      "let " ^ of_thr_var_opt ctx.thrs x_opt ^ " = " ^ current_thr_var ctx.thrs ^ "\n"
   | Wait x_opt ->
     "wait(" ^ of_thr_var_opt ctx.thrs x_opt ^ ");\n"
   | Meta _ -> assert false
@@ -679,4 +685,4 @@ let of_script base_file scr =
   let js = (if !Flags.harness then harness else "") ^
   String.concat "" (List.map (of_command base_file ctx) scr) in
   let js_workers = ctx.thrs.env in
-  (js, js_workers)
+  (js, Map.to_list js_workers |> List.split |> snd)

@@ -67,7 +67,13 @@ def convert_wast_to_js(out_js_dir):
 
     inputs = []
 
-    for wast_file in glob.glob(os.path.join(WAST_TESTS_DIR, '*.wast')):
+    test_directories = ['.', 'simd', 'threads']
+    wast_files = []
+    for d in test_directories:
+        for wast_file in glob.glob(os.path.join(WAST_TESTS_DIR, d, '*.wast')):
+            wast_files.append(wast_file)
+
+    for wast_file in wast_files:
         # Don't try to compile tests that are supposed to fail.
         if '.fail.' in wast_file:
             continue
@@ -150,10 +156,12 @@ def build_html_from_js(tests, html_dir, use_sync):
         html_filename = js_filename + '.html'
         html_file = os.path.join(html_dir, html_filename)
         js_harness = "sync_index.js" if use_sync else "async_index.js"
+        js_worker = "sync_worker.js" if use_sync else "async_worker.js"
         with open(html_file, 'w+') as f:
             content = HTML_HEADER.replace('{PREFIX}', './js/harness') \
                                  .replace('{WPT_PREFIX}', './js/harness') \
-                                 .replace('{JS_HARNESS}', js_harness)
+                                 .replace('{JS_HARNESS}', js_harness) \
+                                 .replace('{JS_WORKER}', js_worker)
             content += "        <script src=./js/{SCRIPT}></script>".replace('{SCRIPT}', js_filename)
             content += HTML_BOTTOM
             f.write(content)
@@ -181,10 +189,12 @@ def build_front_page(out_dir, js_dir, use_sync):
 
     front_page = os.path.join(out_dir, 'index.html')
     js_harness = "sync_index.js" if use_sync else "async_index.js"
+    js_worker = "sync_worker.js" if use_sync else "async_worker.js"
     with open(front_page, 'w+') as f:
         content = HTML_HEADER.replace('{PREFIX}', './js/harness') \
-                             .replace('{WPT_PREFIX}', './js/harness')\
-                             .replace('{JS_HARNESS}', js_harness)
+                             .replace('{WPT_PREFIX}', './js/harness') \
+                             .replace('{JS_HARNESS}', js_harness) \
+                             .replace('{JS_WORKER}', js_worker)
         for js_file in tests:
             filename = os.path.basename(js_file)
             content += "        <script src=./js/{SCRIPT}></script>\n".replace('{SCRIPT}', filename)
