@@ -75,7 +75,7 @@ function eq_funcref(x, y) {
 var registry = {};
 
 // List of workers. Each element is of the form
-// {worker: Worker, executed: bool, result: bool}
+// {worker: Worker, executed: bool}
 // true result means success and false means failure.
 var worker_arr = [];
 
@@ -479,9 +479,10 @@ function wait(widx_prom) {
       let worker_index = values[0];
       return new Promise((resolve, reject) => {
         let worker = worker_arr[worker_index].worker;
+        let worker_tests = fetch_test_from_worker(worker);
         if (worker_arr[worker_index].executed === true) {
           console.log(`Worker ${worker_index} already finished.`)
-          resolve();
+          resolve(worker_tests);
         } else {
           // we need to wait for the message to execute and report back
           console.log(`Wait for worker ${worker_index} to finish.`)
@@ -489,7 +490,7 @@ function wait(widx_prom) {
           worker.onmessage = (event => {
             // if the worker sends anything back, we mark it as resolved
             worker_onmessage(event);
-            resolve();
+            resolve(worker_tests);
           });
         }
         worker.onerror = (err) => {
