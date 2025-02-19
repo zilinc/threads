@@ -62,15 +62,19 @@ def convert_one_wast_file(inputs):
     print('Compiling {} to JS...'.format(wast_file))
     return run(WASM_EXEC, wast_file, '-j', '-d', '-o', js_file)
 
-def convert_wast_to_js(out_js_dir):
+def convert_wast_to_js(out_js_dir, infile_pat):
     """Compile all the wast files to JS and store the results in the JS dir."""
 
     inputs = []
 
     test_directories = ['.', 'simd', 'threads']
+    if infile_pat is not None:
+        test_directories = ['.']
+    else:
+        infile_pat = '*.wast'
     wast_files = []
     for d in test_directories:
-        for wast_file in glob.glob(os.path.join(WAST_TESTS_DIR, d, '*.wast')):
+        for wast_file in glob.glob(os.path.join(WAST_TESTS_DIR, d, infile_pat)):
             wast_files.append(wast_file)
 
     for wast_file in wast_files:
@@ -103,9 +107,9 @@ def copy_harness_files(out_js_dir, include_harness):
             continue
         shutil.copy(js_file, harness_dir)
 
-def build_js(out_js_dir):
+def build_js(out_js_dir, infile_pat):
     print('Building JS...')
-    convert_wast_to_js(out_js_dir)
+    convert_wast_to_js(out_js_dir, infile_pat)
     copy_harness_files(out_js_dir, False)
     print('Done building JS.')
 
@@ -141,11 +145,11 @@ def wrap_single_test(js_file):
     with open(js_file, 'w') as f:
         f.write(content)
 
-def build_html_js(out_dir):
+def build_html_js(out_dir, infile_pat):
     ensure_empty_dir(out_dir)
     copy_harness_files(out_dir, True)
 
-    tests = convert_wast_to_js(out_dir)
+    tests = convert_wast_to_js(out_dir, infile_pat)
     for js_file in tests:
         wrap_single_test(js_file)
     return tests
@@ -180,12 +184,12 @@ def build_html(html_dir, js_dir, use_sync):
 
 
 # Front page harness.
-def build_front_page(out_dir, js_dir, use_sync):
+def build_front_page(out_dir, js_dir, infile_pat, use_sync):
     print('Building front page containing all the HTML tests...')
 
     js_out_dir = os.path.join(out_dir, 'js')
 
-    tests = build_html_js(js_out_dir)
+    tests = build_html_js(js_out_dir, infile_pat)
 
     front_page = os.path.join(out_dir, 'index.html')
     js_harness = "sync_index.js" if use_sync else "async_index.js"
@@ -237,6 +241,14 @@ def process_args():
                         const=True,
                         default=False)
 
+    parser.add_argument('--files',
+                        dest="infile_pat",
+                        help="Only process the given files.",
+                        type=str,
+                        required=False,
+                        default=None,
+                        metavar="<PATTERN>")
+
     return parser.parse_args(), parser
 
 if __name__ == '__main__':
@@ -245,6 +257,7 @@ if __name__ == '__main__':
     js_dir = args.js_dir
     html_dir = args.html_dir
     front_dir = args.front_dir
+    infile_pat = args.infile_pat
 
     if front_dir is None and js_dir is None and html_dir is None:
         print('At least one mode must be selected.\n')
@@ -258,7 +271,7 @@ if __name__ == '__main__':
 
     if js_dir is not None:
         ensure_empty_dir(js_dir)
-        build_js(js_dir)
+        build_js(js_dir, infile_pat)
 
     if html_dir is not None:
         ensure_empty_dir(html_dir)
@@ -266,6 +279,6 @@ if __name__ == '__main__':
 
     if front_dir is not None:
         ensure_empty_dir(front_dir)
-        build_front_page(front_dir, js_dir, args.use_sync)
+        build_front_page(front_dir, js_dir, infile_pat, args.use_sync)
 
     print('Done!')
