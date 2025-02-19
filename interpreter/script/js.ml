@@ -282,9 +282,11 @@ let bind (ctx: context) x_opt m =
   top_thrs.mods <- mods;
   ctx.thrs <- top_thrs :: List.tl ctx.thrs
 
-let write_thread (ctx: context) x_opt basefile (scr: string) =
+let write_thread (ctx: context) x_opt basefile (scr: string) at =
   let v = current_thr_var ctx in
   let v' = of_thr_var_opt ctx x_opt in
+  if Map.find_opt v' ctx.thrs_writer <> None then
+    raise (Eval.Crash (at, "Duplicate thread name " ^ v'));
   let fname = Filename.remove_extension basefile ^ v ^ Filename.extension basefile in
   let fname' = Filename.remove_extension basefile ^ v' ^ Filename.extension basefile in
   trace ("add " ^ v' ^ " and " ^ v ^ " to writer\n");
@@ -638,10 +640,9 @@ let of_wrapper mods x_opt name wrap_action wrap_assertion at =
 let of_action mods act =
   match act.it with
   | Invoke (x_opt, name, vs) ->
-  (*
-    let _ = trace ("INVOKE " ^ string_of_name name ^ " with module\n") in
-    let _ = trace ("mod_name: " ^ (of_mod_var_opt mods x_opt) ^ "\n") in
-    let _ = trace (string_of_modules mods) in *)
+    let _ = trace ("INVOKE " ^ string_of_name name ^ " with module(" ^
+            of_mod_var_opt mods x_opt ^ "):\n") in
+    let _ = trace (string_of_modules mods) in
     "call(" ^ of_mod_var_opt mods x_opt ^ ", " ^ of_name name ^ ", " ^
       "[" ^ String.concat ", " (List.map of_value vs) ^ "])",
     (match lookup mods x_opt name act.at with
@@ -716,7 +717,7 @@ let rec of_command base_file (ctx : context) cmd =
     enter_thr_scope ctx;
     if x_opt = None then failwith "NYI: JS printing can't handle anonymous thread commands";
     let worker_contents = String.concat "" (List.map (of_command base_file ctx) cmds) in
-    write_thread ctx x_opt base_file worker_contents;
+    write_thread ctx x_opt base_file worker_contents cmd.at;
     let worker_file = Filename.remove_extension(base_file) ^
                       of_thr_var_opt ctx x_opt ^
                       Filename.extension(base_file) in
