@@ -438,16 +438,15 @@ function thread(parent_scope, filename) {
       // parent_scope is a list with each element [name, Promise(instance)]
       // For each element, create a promise cloning only the shared memories of the instance:
       parent_scope.map(elt => {
-        let [name, prom] = elt
-        return prom.then(instance => {
-          console.log("[I] instance" + instance)
-          let exports = []
-          Object.keys(instance.exports).forEach(k => {
-            if (instance.exports[k].buffer instanceof SharedArrayBuffer) {
-              exports[k] = instance.exports[k]
+        let [name, instance] = elt
+        return instance.then(inst => {
+          let inst_exports = {exports: {}}  // The API requires this nested structure.
+          Object.keys(inst.exports).forEach(k => {
+            if (inst.exports[k].buffer instanceof SharedArrayBuffer) {
+              inst_exports.exports[k] = inst.exports[k]
             };
           });
-          return [name, exports];
+          return [name, inst_exports];
         });
       })
     )}).then(scope => {
@@ -456,15 +455,21 @@ function thread(parent_scope, filename) {
       let worker_index = worker_arr.length;
       worker_arr.push({worker: worker, executed: false});
       worker.onmessage = (event => {
-        worker_arr[worker_index] = {worker: worker, executed: true};
         switch (event.data.type) {
         case "done":
+          worker_arr[worker_index] = {worker: worker, executed: true};
+          console.log(`Worker ${worker_index} is done, very quickly.`)
           break;
         case "failed":
+          worker_arr[worker_index] = {worker: worker, executed: true};
           uniqueTest(_ => { assert_true(false, event.data.loc); },
                      filename + ": " + event.data.name);
         }
       });
+      worker.onerror = (err) => {
+        uniqueTest(_ => { assert_true(false, loc); }, filename + ": " + err);
+        console.log(`Worker ${worker_index} errored out due to `, err)
+      }
       worker.postMessage({scope: scope, filename: filename});
       return worker_index;
   })
@@ -479,26 +484,21 @@ function wait(widx_prom) {
       let worker_index = values[0];
       return new Promise((resolve, reject) => {
         let worker = worker_arr[worker_index].worker;
-        let worker_tests = fetch_test_from_worker(worker);
         if (worker_arr[worker_index].executed === true) {
           console.log(`Worker ${worker_index} already finished.`)
-          resolve(worker_tests);
+          resolve();
         } else {
           // we need to wait for the message to execute and report back
           console.log(`Wait for worker ${worker_index} to finish.`)
-          let worker_onmessage = worker.onmessage;  // the old message handler for that worker
           worker.onmessage = (event => {
-            // if the worker sends anything back, we mark it as resolved
-            worker_onmessage(event);
-            resolve(worker_tests);
+            // if the worker sends `done' or `failed' back, we mark it as resolved
+            if (event.data.type === "done" || event.data.type === "failed") {
+              worker_arr[worker_index].executed = true;
+              console.log(`Worker ${worker_index} is now done, finally.`)
+              resolve();
+            }
           });
-        }
-        worker.onerror = (err) => {
-          uniqueTest(_ => { assert_true(false, loc); }, test);
-          console.log(`Worker ${worker_index} errored out due to `, err)
-          reject();
-        }
-      });
+        }})
     });
   return chain;
 }

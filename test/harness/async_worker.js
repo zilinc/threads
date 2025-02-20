@@ -1,9 +1,9 @@
 onmessage = (event) => {
-  // event.data : {scope: [[name, prom]], filename: string}
+  // event.data : {scope: [[name, exports]], filename: string}
   event.data.scope.forEach(element => {
-    let [name, prom] = element;
+    let [name, exports] = element;
     // set global variables to bind the imported instances
-    self[name] = Promise.resolve(prom);
+    self[name] = Promise.resolve(exports);
   });
 
   let fname = event.data.filename;
