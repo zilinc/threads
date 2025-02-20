@@ -433,6 +433,7 @@ function get(instance, name) {
 }
 
 function thread(parent_scope, filename) {
+  const loc = new Error().stack.toString().replace("Error", "");
   chain = chain.then(_ => {
     return Promise.all(
       // parent_scope is a list with each element [name, Promise(instance)]
@@ -451,17 +452,26 @@ function thread(parent_scope, filename) {
       })
     )}).then(scope => {
       // scope is a list of [name, exports]
-      const worker = new Worker("./js/harness/async_worker.js");
+      var worker_path = "./js/harness/async_worker.js";
+      // use absolute path so that nested thread workers can still find the file.
+      if (typeof window !== "undefined") {
+          worker_path = window.location.pathname + "js/harness/async_worker.js";
+      } else if (location instanceof WorkerLocation) {
+          worker_path = location.pathname;
+      } else {
+        uniqueTest(_ => { assert_true(false, loc); }, "Unknown location type: ", location)
+      }
+      const worker = new Worker(worker_path);
       let worker_index = worker_arr.length;
       worker_arr.push({worker: worker, executed: false});
       worker.onmessage = (event => {
         switch (event.data.type) {
         case "done":
-          worker_arr[worker_index] = {worker: worker, executed: true};
+          worker_arr[worker_index].executed = true;
           console.log(`Worker ${worker_index} is done, very quickly.`)
           break;
         case "failed":
-          worker_arr[worker_index] = {worker: worker, executed: true};
+          worker_arr[worker_index].executed = true;
           uniqueTest(_ => { assert_true(false, event.data.loc); },
                      filename + ": " + event.data.name);
         }
@@ -497,8 +507,13 @@ function wait(widx_prom) {
               console.log(`Worker ${worker_index} is now done, finally.`)
               resolve();
             }
-          });
+          })
+          ;
         }})
+    },
+    err => {
+      console.log("wait error ", err);
+      uniqueTest(_ => { assert_true(false, loc); }, test);
     });
   return chain;
 }

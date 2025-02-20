@@ -7,7 +7,7 @@ onmessage = (event) => {
   });
 
   let fname = event.data.filename;
-  importScripts("testharness.js", "async_index.js", "../../../../" + fname);
+  importScripts("testharness.js", "async_index.js", "/" + fname);
   chain.then(
     _ => {
       console.log(`Worker ${fname} posted done`);
