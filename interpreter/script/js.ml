@@ -214,7 +214,7 @@ module Map = Map.Make(String)
 type exports = extern_type NameMap.t
 
 type modules = {mutable env: exports Map.t; mutable current: int}
-type threads = {mutable mods: modules; current: int}
+type threads = {mods: modules; current: int}
 type context = {mutable thrs: threads list; mutable thr_fresh: int;
                 mutable thrs_writer: (string * string) Map.t}
 
@@ -231,7 +231,7 @@ let context () : context =
   {thrs = [init_thrs]; thr_fresh = 0; thrs_writer = Map.empty}
 
 let string_of_exports (es: exports) =
-  String.concat ", " (List.map string_of_name (NameMap.to_list es |> List.split |> fst)) ^ "\n"
+  String.concat ", " (List.map string_of_name (NameMap.bindings es |> List.split |> fst)) ^ "\n"
 
 let string_of_modules (mods: modules) =
   let es = mods.env in
@@ -244,7 +244,7 @@ let string_of_context ctx =
   let js_writer  = ctx.thrs_writer in
   "Context:\n" ^
   String.concat "↑\n" (List.map (fun thrs -> string_of_modules (thrs.mods)) thrs_stack) ^
-  "Js files:\n" ^ String.concat ", " (Map.to_list js_writer |> List.map fst) ^
+  "Js files:\n" ^ String.concat ", " (Map.bindings js_writer |> List.map fst) ^
   "\n"
 
 
@@ -259,7 +259,7 @@ let of_mod_var_opt (mods: modules) = function
   | None -> current_mod_var mods
   | Some x -> x.it 
 
-let thrs_of_ctx (ctx: context) = (List.hd ctx.thrs)
+let thrs_of_ctx (ctx: context) = List.hd ctx.thrs
 let mods_of_ctx (ctx: context) = (thrs_of_ctx ctx).mods
 
 
@@ -277,10 +277,7 @@ let bind (ctx: context) x_opt m =
   let exports = exports m in
   mods.current <- mods.current + 1;
   mods.env <- Map.add (of_mod_var_opt mods x_opt) exports mods.env;
-  if x_opt <> None then mods.env <- Map.add (current_mod_var mods) exports mods.env;
-  let top_thrs = List.hd ctx.thrs in
-  top_thrs.mods <- mods;
-  ctx.thrs <- top_thrs :: List.tl ctx.thrs
+  if x_opt <> None then mods.env <- Map.add (current_mod_var mods) exports mods.env
 
 let write_thread (ctx: context) x_opt basefile (scr: string) at =
   let v = current_thr_var ctx in
@@ -289,7 +286,6 @@ let write_thread (ctx: context) x_opt basefile (scr: string) at =
     raise (Eval.Crash (at, "Duplicate thread name " ^ v'));
   let fname = Filename.remove_extension basefile ^ v ^ Filename.extension basefile in
   let fname' = Filename.remove_extension basefile ^ v' ^ Filename.extension basefile in
-  trace ("add " ^ v' ^ " and " ^ v ^ " to writer\n");
   ctx.thrs_writer <- Map.add v' (fname', scr) ctx.thrs_writer;
   if x_opt <> None then ctx.thrs_writer <- Map.add v (fname, scr) ctx.thrs_writer
 
@@ -307,11 +303,9 @@ let lookup (mods: modules) x_opt name at =
 let enter_thr_scope (ctx: context) =
   ctx.thr_fresh <- ctx.thr_fresh + 1;
   let new_thrs = {mods = modules (); current = ctx.thr_fresh} in
-  ctx.thrs <- new_thrs :: ctx.thrs;
-  trace ("enter scope: " ^ string_of_int (thrs_of_ctx ctx).current ^ "\n")
+  ctx.thrs <- new_thrs :: ctx.thrs
 
 let leave_thr_scope (ctx: context) =
-  trace ("leaving scope: " ^ string_of_int (thrs_of_ctx ctx).current ^ "\n");
   ctx.thrs <- List.tl ctx.thrs
 
 (* Wrappers *)
@@ -640,9 +634,6 @@ let of_wrapper mods x_opt name wrap_action wrap_assertion at =
 let of_action mods act =
   match act.it with
   | Invoke (x_opt, name, vs) ->
-    let _ = trace ("INVOKE " ^ string_of_name name ^ " with module(" ^
-            of_mod_var_opt mods x_opt ^ "):\n") in
-    let _ = trace (string_of_modules mods) in
     "call(" ^ of_mod_var_opt mods x_opt ^ ", " ^ of_name name ^ ", " ^
       "[" ^ String.concat ", " (List.map of_value vs) ^ "])",
     (match lookup mods x_opt name act.at with
@@ -692,7 +683,6 @@ let of_assertion mods ass =
     of_assertion' mods act "assert_exhaustion" [] None
 
 let rec of_command base_file (ctx : context) cmd =
-  trace ("of_command ctx:\n" ^ string_of_context ctx);
   "\n// " ^ Filename.basename cmd.at.left.file ^
     ":" ^ string_of_int cmd.at.left.line ^ "\n" ^
   match cmd.it with
@@ -740,4 +730,4 @@ let of_script base_file scr =
   let js = (if !Flags.harness then harness else "") ^
   String.concat "" (List.map (of_command base_file ctx) scr) in
   let js_workers = ctx.thrs_writer in
-  (js, Map.to_list js_workers |> List.split |> snd)
+  (js, Map.bindings js_workers |> List.split |> snd)
