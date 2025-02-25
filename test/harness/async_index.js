@@ -122,6 +122,18 @@ function reinitializeRegistry() {
     registry = new Proxy({ spectest }, handler);
   });
 
+  // Called at the end of the generated js test file to make sure that all
+  // the workers are properly terminated.
+  chain.then(_ => {
+    worker_arr.forEach((elem, idx) => {
+      if (elem.executed === false) {
+        elem.worker.terminate();
+        console.log(`kill potentially unfinished worker ${idx}.`)
+      }
+    });
+    worker_arr = [];
+  })
+
   // This function is called at the end of every generated js test file. By
   // adding the chain as a promise_test here we make sure that the WPT harness
   // waits for all tests in the chain to finish.
@@ -284,23 +296,7 @@ function assert_return(action, ...expected) {
             throw new Error(expected.length + " value(s) expected, got " + actual.length);
           }
           for (let i = 0; i < actual.length; ++i) {
-            switch (expected[i]) {
-              case "nan:canonical":
-              case "nan:arithmetic":
-              case "nan:any":
-                // Note that JS can't reliably distinguish different NaN values,
-                // so there's no good way to test that it's a canonical NaN.
-                assert_true(Number.isNaN(actual[i]), `expected NaN, observed ${actual[i]}.`);
-                return;
-              case "ref.func":
-                assert_true(typeof actual[i] === "function", `expected Wasm function, got ${actual[i]}`);
-                return;
-              case "ref.extern":
-                assert_true(actual[i] !== null, `expected Wasm reference, got ${actual[i]}`);
-                return;
-              default:
-                assert_equals(actual[i], expected[i], loc);
-            }
+            match_result(actual[i], expected[i]);
           }
         }, test);
       },
@@ -316,6 +312,41 @@ function assert_return(action, ...expected) {
     // Clear all exceptions, so that subsequent tests get executed.
     .catch(_ => {});
 }
+
+function match_result(actual, expected, inner=false) {
+  var res = false;
+  switch (expected) {
+    case "nan:canonical":
+    case "nan:arithmetic":
+    case "nan:any":
+      // Note that JS can't reliably distinguish different NaN values,
+      // so there's no good way to test that it's a canonical NaN.
+      res = Number.isNaN(actual);
+      assert_true(res || inner, "Wasm return value NaN expected, got " + actual);
+      return res;
+    case "ref.func":
+      res = (typeof actual[i] === "function");
+      assert_true(res || inner, "Wasm function return value expected, got " + actual);
+      return res;
+    case "ref.extern":
+      res = (actual !== null);
+      assert_true(res || inner, "Wasm reference return value expected, got " + actual);
+      return res;
+    default:
+      if (Array.isArray(expected)) {
+        for (let i = 0; i < expected.length; ++i) {
+          res ||= match_result(actual, expected[i], true);
+        }
+        assert_true(res, "Wasm return value in " + expected + " expected, got " + actual);
+        return res;
+      } else {
+        res = Object.is(actual, expected);
+        assert_true(res || inner, "Wasm return value " + expected + " expected, got " + actual);
+        return res;
+      }
+  }
+}
+
 
 let StackOverflow;
 try {
@@ -462,6 +493,7 @@ function thread(parent_scope, filename) {
         uniqueTest(_ => { assert_true(false, loc); }, "Unknown location type: ", location)
       }
       const worker = new Worker(worker_path);
+      fetch_tests_from_worker(worker);
       let worker_index = worker_arr.length;
       worker_arr.push({worker: worker, executed: false});
       worker.onmessage = (event => {
@@ -496,6 +528,8 @@ function wait(widx_prom) {
         let worker = worker_arr[worker_index].worker;
         if (worker_arr[worker_index].executed === true) {
           console.log(`Worker ${worker_index} already finished.`)
+          // fetch_tests_from_worker(worker);
+          // console.log("fetch tests from worker ", worker_index);
           resolve();
         } else {
           // we need to wait for the message to execute and report back
@@ -505,6 +539,8 @@ function wait(widx_prom) {
             if (event.data.type === "done" || event.data.type === "failed") {
               worker_arr[worker_index].executed = true;
               console.log(`Worker ${worker_index} is now done, finally.`)
+              // fetch_tests_from_worker(worker);
+              // console.log("fetch tests from worker ", worker_index);
               resolve();
             }
           })
@@ -514,6 +550,7 @@ function wait(widx_prom) {
     err => {
       console.log("wait error ", err);
       uniqueTest(_ => { assert_true(false, loc); }, test);
-    });
-  return chain;
+    })
+    // Clear all exceptions, so that subsequent tests get executed.
+    .catch(_ => {});
 }

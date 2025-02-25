@@ -1,3 +1,5 @@
+importScripts("testharness.js", "async_index.js");
+
 onmessage = (event) => {
   // event.data : {scope: [[name, exports]], filename: string}
   event.data.scope.forEach(element => {
@@ -7,14 +9,16 @@ onmessage = (event) => {
   });
 
   let fname = event.data.filename;
-  importScripts("testharness.js", "async_index.js", "/" + fname);
+  importScripts("/" + fname);
   chain.then(
     _ => {
       console.log(`Worker ${fname} posted done`);
+      done();
       postMessage({type: "done"});
     },
     reason => {
       console.log(`Worker ${fname} failed due to ` + reason)
+      done();
       postMessage({type: "failed"})
     });
 };
