@@ -19,7 +19,11 @@
 let testNum = (function() {
   let count = 1;
   return function() {
-    return `#${count++} `;
+    if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
+      return `#${count++} (${self.id}) `;
+    } else {
+      return `#${count++} `;
+    }
   };
 })();
 

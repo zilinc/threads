@@ -1,5 +1,3 @@
-importScripts("testharness.js", "async_index.js");
-
 onmessage = (event) => {
   // event.data : {scope: [[name, exports]], filename: string}
   event.data.scope.forEach(element => {
@@ -9,7 +7,11 @@ onmessage = (event) => {
   });
 
   let fname = event.data.filename;
-  importScripts("/" + fname);
+  // Set `id' so that async_index knows where the tests are running from.
+  self.id = fname.replace(/^.*[\\/]/, '');
+
+  importScripts("testharness.js", "async_index.js", "/" + fname);
+
   chain.then(
     _ => {
       console.log(`Worker ${fname} posted done`);
