@@ -72,10 +72,16 @@ def convert_wast_to_js(out_js_dir, infile_pat):
         test_directories = ['.']
     else:
         infile_pat = '*.wast'
+
     wast_files = []
+    wast_files_in_d = []  # to keep sortedness of files, as glob doesn't guarantee order.
+
     for d in test_directories:
         for wast_file in glob.glob(os.path.join(WAST_TESTS_DIR, d, infile_pat)):
-            wast_files.append(wast_file)
+            wast_files_in_d.append(wast_file)
+        wast_files_in_d.sort()
+        wast_files = wast_files + wast_files_in_d
+        wast_files_in_d = []
 
     for wast_file in wast_files:
         # Don't try to compile tests that are supposed to fail.
@@ -138,6 +144,7 @@ def wrap_single_test(js_file):
     test_func_name = os.path.basename(js_file).replace('.', '_').replace('-', '_')
 
     content = "(function {}() {{\n".format(test_func_name)
+    content += f"self.id = \"{test_func_name}\";\n" 
     with open(js_file, 'r') as f:
         content += f.read()
     content += "reinitializeRegistry();\n})();\n"

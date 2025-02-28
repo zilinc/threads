@@ -19,10 +19,10 @@
 let testNum = (function() {
   let count = 1;
   return function() {
-    if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {
-      return `#${count++} (${self.id}) `;
-    } else {
+    if (typeof self.id === 'undefined') {
       return `#${count++} `;
+    } else {
+      return `#${count++} (${self.id}) `;
     }
   };
 })();

@@ -308,6 +308,12 @@ let enter_thr_scope (ctx: context) =
 let leave_thr_scope (ctx: context) =
   ctx.thrs <- List.tl ctx.thrs
 
+let with_new_thr_scope (ctx: context) (f: context -> 't) : 't =
+  enter_thr_scope ctx;
+  let r = f ctx in
+  leave_thr_scope ctx;
+  r
+
 (* Wrappers *)
 
 let subject_idx = 0l
@@ -704,22 +710,21 @@ let rec of_command base_file (ctx : context) cmd =
   | Assertion ass ->
     of_assertion (mods_of_ctx ctx) ass ^ "\n"
   | Thread (x_opt, xs, cmds) ->
-    enter_thr_scope ctx;
-    if x_opt = None then failwith "NYI: JS printing can't handle anonymous thread commands";
-    let worker_contents = String.concat "" (List.map (of_command base_file ctx) cmds) in
-    write_thread ctx x_opt base_file worker_contents cmd.at;
-    let worker_file = Filename.remove_extension(base_file) ^
-                      of_thr_var_opt ctx x_opt ^
-                      Filename.extension(base_file) in
-    let js = "let " ^ current_thr_var ctx ^
-             " = thread([" ^
-             String.concat ", " (List.map (fun x -> "[\"" ^ x.it ^ "\", " ^ x.it ^ "]") xs) ^
-             "], \"" ^ worker_file ^
-             "\");\n" ^
-             if x_opt = None then "" else
-               "let " ^ of_thr_var_opt ctx x_opt ^ " = " ^ current_thr_var ctx ^ "\n" in
-    leave_thr_scope ctx;
-    js
+    with_new_thr_scope ctx (fun ctx ->
+      if x_opt = None then failwith "NYI: JS printing can't handle anonymous thread commands";
+      let worker_contents = String.concat "" (List.map (of_command base_file ctx) cmds) in
+      write_thread ctx x_opt base_file worker_contents cmd.at;
+      let worker_file = Filename.remove_extension(base_file) ^
+                        of_thr_var_opt ctx x_opt ^
+                        Filename.extension(base_file) in
+      "let " ^ current_thr_var ctx ^
+      " = thread([" ^
+      String.concat ", " (List.map (fun x -> "[\"" ^ x.it ^ "\", " ^ x.it ^ "]") xs) ^
+      "], \"" ^ worker_file ^
+      "\");\n" ^
+      if x_opt = None then "" else
+        "let " ^ of_thr_var_opt ctx x_opt ^ " = " ^ current_thr_var ctx ^ "\n"
+    )
   | Wait x_opt ->
     "wait(" ^ of_thr_var_opt ctx x_opt ^ ");\n"
   | Meta _ -> assert false
