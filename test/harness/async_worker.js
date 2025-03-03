@@ -10,9 +10,10 @@ onmessage = (event) => {
   // Set `id' so that async_index knows where the tests are running from.
   self.id = fname.replace(/^.*[\\/]/, '');
 
-  importScripts("testharness.js", "async_index.js", "/" + fname);
+  importScripts("testharness.js", "async_index.js");
 
-  chain.then(
+  chain = chain.then(_ => importScripts("/" + fname)
+  ).then(
     _ => {
       console.log(`Worker ${fname} posted done`);
       done();
