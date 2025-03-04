@@ -12,16 +12,17 @@ onmessage = (event) => {
 
   importScripts("testharness.js", "async_index.js");
 
-  chain = chain.then(_ => importScripts("/" + fname)
-  ).then(
-    _ => {
-      console.log(`Worker ${fname} posted done`);
-      done();
-      postMessage({type: "done"});
-    },
-    reason => {
-      console.log(`Worker ${fname} failed due to ` + reason)
-      done();
-      postMessage({type: "failed"})
-    });
+  chain.then(_ => importScripts("/" + fname)).then(_ => {
+    chain = chain.then(
+      _ => {
+        console.log(`Worker ${fname} posted done`);
+        done();
+        postMessage({type: "done"});
+      },
+      reason => {
+        console.log(`Worker ${fname} failed due to ` + reason)
+        done();
+        postMessage({type: "failed"})
+      });
+    })
 };
