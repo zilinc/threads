@@ -4,10 +4,6 @@
 
 (register "mem" $Mem)
 
-;; (module $MemIm
-;;   (memory (import "mem" "shared") 1 10 shared)
-;; )
-
 
 (thread $T1 (shared (module $Mem))
   (register "mem" $Mem)
@@ -19,7 +15,6 @@
       (i32.load (i32.const 4))
       (local.set 0)
 
-      ;; store results for checking
       (i32.store (i32.const 24) (local.get 0))
     )
   )
@@ -49,7 +44,7 @@
       (module
         (memory (import "mem" "shared") 1 1 shared)
         (func (export "run_innermost")
-          (i32.store (i32.const 24) (i32.const 0))
+          (i32.store (i32.const 24) (i32.const 44))
         )
       )
       (invoke "run_innermost")
@@ -59,12 +54,12 @@
       (module
         (memory (import "mem" "shared") 1 1 shared)
         (func (export "run_innermost")
-          (i32.store (i32.const 24) (i32.const 0))
+          (i32.store (i32.const 32) (i32.const 45))
         )
       )
       (invoke "run_innermost")
     )
-  
+
     (wait $T121)
     (wait $T122)
 
@@ -87,7 +82,6 @@
       (i32.load (i32.const 0))
       (local.set 0)
 
-      ;; store results for checking
       (i32.store (i32.const 32) (local.get 0))
     )
   )
@@ -97,27 +91,3 @@
 
 (wait $T1)
 (wait $T2)
-;; (wait $T11)  -- not in scope
-
-
-(module $Check
-  (memory (import "mem" "shared") 1 1 shared)
-
-  (func (export "check") (result i32)
-    (local i32 i32)
-    (i32.load (i32.const 24))
-    (local.set 0)
-    (i32.load (i32.const 32))
-    (local.set 1)
-
-    ;; allowed results: (L_0 = 0 || L_0 = 1) && (L_1 = 0 || L_1 = 1)
-
-    (i32.or (i32.eq (local.get 0) (i32.const 1)) (i32.eq (local.get 0) (i32.const 0)))
-    (i32.or (i32.eq (local.get 1) (i32.const 1)) (i32.eq (local.get 0) (i32.const 0)))
-    (i32.and)
-    (return)
-  )
-)
-
-
-;; (assert_return (invoke $Check "check") (i32.const 1))

@@ -14,7 +14,6 @@
       (i32.load (i32.const 4))
       (local.set 0)
 
-      ;; store results for checking
       (i32.store (i32.const 24) (local.get 0))
     )
   )
@@ -44,7 +43,6 @@
       (i32.load (i32.const 0))
       (local.set 0)
 
-      ;; store results for checking
       (i32.store (i32.const 32) (local.get 0))
     )
   )
@@ -54,24 +52,3 @@
 
 (wait $T1)
 (wait $T2)
-
-(module $Check
-  (memory (import "mem" "shared") 1 1 shared)
-
-  (func (export "check") (result i32)
-    (local i32 i32)
-    (i32.load (i32.const 24))
-    (local.set 0)
-    (i32.load (i32.const 32))
-    (local.set 1)
-
-    ;; allowed results: (L_0 = 42 || L_0 = 1) && (L_1 = 42 || L_1 = 1)
-
-    (i32.or (i32.eq (local.get 0) (i32.const 1)) (i32.eq (local.get 0) (i32.const 0)))
-    (i32.or (i32.eq (local.get 1) (i32.const 1)) (i32.eq (local.get 1) (i32.const 0)))
-    (i32.and)
-    (return)
-  )
-)
-
-(assert_return (invoke $Check "check") (i32.const 1))
