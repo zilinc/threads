@@ -132,6 +132,7 @@ HTML_HEADER = """<!doctype html>
     </head>
     <body>
 
+        <!-- <meta name="timeout" content="long"> -->
         <script src={WPT_PREFIX}/testharness.js></script>
         <script src={WPT_PREFIX}/testharnessreport.js></script>
         <script src={PREFIX}/{JS_HARNESS}></script>
